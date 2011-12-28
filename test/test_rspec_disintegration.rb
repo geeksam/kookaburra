@@ -1,16 +1,37 @@
 require File.join(File.dirname(__FILE__), *%w[helper])
 
 describe "RSpec (dis)integration" do
-  # AnticipatedRSpecIntrusion = Class.new(Exception)
+  class MeddlingComponent
+    def poke_nose_into_rspec_where_it_doesnt_belong
+      nil.should == nil
+      raise "if you got here, something is messed up, yo"
+    end
 
-  before do
+    def misguided_subcomponent
+      MisguidedSubcomponent.new
+    end
+
+    class MisguidedSubcomponent
+      def give_testing_layer_responsibility_it_shouldnt_have
+        true.should == true
+        raise "that totally should've exploded"
+      end
+
+      def itself
+        self
+      end
+    end
+  end
+
+  def monkeypatch_all_the_things
     Kernel.module_eval do
       unless defined?(UnwantedRSpecIntrusion)
-        class UnwantedRSpecIntrusion < Exception
+        klass = Class.new(Exception) do
           def message
             "Client code was able to successfully call RSpec's #should or #should_not.  YOU LOSE."
           end
         end
+        const_set :UnwantedRSpecIntrusion, klass
       end
       def should(*_)
         raise UnwantedRSpecIntrusion
@@ -21,7 +42,7 @@ describe "RSpec (dis)integration" do
     end
   end
 
-  after do
+  def clean_all_the_things
     Kernel.module_eval do
       if const_defined?(:RSpecExpectationSuccessfullyCalled)
         remove_const :RSpecExpectationSuccessfullyCalled
@@ -31,55 +52,64 @@ describe "RSpec (dis)integration" do
     end
   end
 
-  # TODO: remove this
-  it 'checks sanity' do
-    assert Kernel.methods.include?('should')
-    assert Kernel.methods.include?('should_not')
+  before { monkeypatch_all_the_things }
+  after { clean_all_the_things; $DEBUG=false }
+
+  before do
+    @world = cucumber_world
+    def @world.meddling_component
+      MeddlingComponent.new
+    end
+    @world.instance_eval do
+      @drivers[:api_driver] = Kookaburra::RSpecRemovingProxy.new(meddling_component)
+    end
+
+    @proxied_object = @world.api
+    @bare_object    = @world.meddling_component
+  end
+
+  ##### Oh, look, some tests! #####
+
+  describe Kookaburra::RSpecRemovingProxy do
+    it "tells you that it's present" do
+      assert @proxied_object.filters_rspec_expectation_methods?
+      refute @bare_object   .filters_rspec_expectation_methods?
+    end
+
+    it 'raises Kookaburra::RSpecIntrusion if you try to call #should inside any of its direct methods' do
+      assert_raises(Kookaburra::RSpecIntrusion) do
+        @proxied_object.poke_nose_into_rspec_where_it_doesnt_belong
+      end
+    end
+
+    it 'wraps returned values in an RSpecRemovingProxy too' do
+      child_object = @proxied_object.misguided_subcomponent
+      assert_raises(Kookaburra::RSpecIntrusion) do
+        child_object.give_testing_layer_responsibility_it_shouldnt_have
+      end
+    end
+
+    it's turtles all the way down' do # http://chalain.livejournal.com/66798.html
+      assert @proxied_object.misguided_subcomponent.itself.itself.itself.filters_rspec_expectation_methods?
+    end
   end
 
   describe Kookaburra::WorldSetup do
-    class MeddlingComponent
-      def poke_nose_into_rspec_where_it_doesnt_belong
-        nil.should == nil
-        raise "if you got here, something is messed up, yo"
-      end
-    end
-
-    before do
-      @world = Object.new
-      @world.extend(Kookaburra::WorldSetup)
-      @world.kookaburra_world_setup
-      def @world.meddling_component
-        MeddlingComponent.new
-      end
-      @world.instance_eval do
-        @drivers[:api_driver] = Kookaburra::RSpecRemovingProxy.new(meddling_component)
-      end
-    end
-
     it "doesn't raise Kookaburra::RSpecIntrusion if you call the naughty method on the object itself" do
-      # Calling the method on the object itself invokes Kernel#should
       assert_raises(UnwantedRSpecIntrusion) do
-        @world.meddling_component.poke_nose_into_rspec_where_it_doesnt_belong
-      end
-    end
-
-    it 'raises Kookaburra::RSpecIntrusion if you try to call #should inside the call to #api' do
-      # Calling the method from the #api accessor raises an exception
-      assert_raises(Kookaburra::RSpecIntrusion) do
-        @world.api.poke_nose_into_rspec_where_it_doesnt_belong
+        @bare_object.poke_nose_into_rspec_where_it_doesnt_belong
       end
     end
 
     it "doesn't raise Kookaburra::RSpecIntrusion even after calling (i.e., Kernel#should gets redefined when you're done)" do
       begin
-        @world.api.poke_nose_into_rspec_where_it_doesnt_belong
+        @proxied_object.poke_nose_into_rspec_where_it_doesnt_belong
       rescue Kookaburra::RSpecIntrusion
         # do nothing
       end
-    
+
       assert_raises(UnwantedRSpecIntrusion) do
-        @world.meddling_component.poke_nose_into_rspec_where_it_doesnt_belong
+        @bare_object.poke_nose_into_rspec_where_it_doesnt_belong
       end
     end
   end

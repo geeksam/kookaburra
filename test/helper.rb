@@ -14,4 +14,10 @@ $LOAD_PATH.unshift(File.join(File.dirname(__FILE__), '..', 'lib'))
 require 'kookaburra'
 
 class MiniTest::Unit::TestCase
+  def cucumber_world
+    Object.new.tap do |world|
+      world.extend Kookaburra::WorldSetup
+      world.kookaburra_world_setup
+    end
+  end
 end

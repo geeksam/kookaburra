@@ -1,3 +1,9 @@
+module Kernel
+  def filters_rspec_expectation_methods?
+    false
+  end
+end
+
 module Kookaburra
   class RSpecRemovingProxy
     instance_methods.each { |meth| undef_method(meth) unless meth =~ /^__/ }
@@ -8,11 +14,16 @@ module Kookaburra
     
     def method_missing(meth, *args, &block)
       __hide_rspec_methods(Kernel, :should, :should_not)
-      @proxied_object.send(meth, *args, &block)
+      ret_val = @proxied_object.send(meth, *args, &block)
+      return RSpecRemovingProxy.new(ret_val)
     ensure
       __show_rspec_methods(Kernel, :should, :should_not)
     end
-  
+
+    def filters_rspec_expectation_methods?
+      true
+    end
+
   protected
     def __hide_rspec_methods(context, *method_names)
       method_names.each do |mname|
