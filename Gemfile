@@ -1,7 +1,7 @@
 source 'http://rubygems.org'
 
 gem 'activesupport', '>= 3.0'
-gem 'rack'
+gem 'capybara'
 
 
 
@@ -14,4 +14,5 @@ group :development do
   gem 'jeweler', '~> 1.6.4'
   gem 'rcov', '>= 0'
   gem 'reek', '~> 1.2.8'
+  gem 'rack-test'
 end
